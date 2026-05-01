@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -13,7 +12,6 @@ const StartFibreSessionName = "fibre"
 func startFibreCmd() *cobra.Command {
 	var (
 		rootDir           string
-		SSHKeyPath        string
 		instances         int
 		metricsAddress    string
 		pyroscopeEndpoint string
@@ -31,8 +29,6 @@ func startFibreCmd() *cobra.Command {
 			if len(cfg.Validators) == 0 {
 				return fmt.Errorf("no validators found in config")
 			}
-
-			resolvedSSHKeyPath := resolveValue(SSHKeyPath, EnvVarSSHKeyPath, strings.ReplaceAll(cfg.SSHPubKeyPath, ".pub", ""))
 
 			// Select first N validators (default all)
 			if instances <= 0 || instances > len(cfg.Validators) {
@@ -60,7 +56,7 @@ func startFibreCmd() *cobra.Command {
 
 			fmt.Printf("Starting fibre sessions on %d validator(s)...\n", len(validators))
 
-			if err := runScriptInTMux(validators, resolvedSSHKeyPath, remoteCmd, StartFibreSessionName, 5*time.Minute); err != nil {
+			if err := runScriptInTMux(validators, remoteCmd, StartFibreSessionName, 5*time.Minute); err != nil {
 				return fmt.Errorf("failed to start remote sessions: %w", err)
 			}
 
@@ -82,7 +78,6 @@ func startFibreCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&rootDir, "directory", "d", ".", "root directory (for config.json)")
-	cmd.Flags().StringVarP(&SSHKeyPath, "ssh-key-path", "k", "", "path to SSH private key (overrides env/default)")
 	cmd.Flags().IntVar(&instances, "instances", 0, "number of validators to start fibre on (default all)")
 	cmd.Flags().StringVar(&metricsAddress, "otel-endpoint", "", "OTLP HTTP endpoint for metrics/traces (e.g. http://host:4318; empty = disabled)")
 	cmd.Flags().StringVar(&pyroscopeEndpoint, "pyroscope-endpoint", "", "Pyroscope endpoint for continuous profiling (default: auto-detected from observability config, e.g. http://host:4040)")

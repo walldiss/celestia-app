@@ -134,6 +134,10 @@ func initCmd() *cobra.Command {
 					WithAWSZone(resolveAWSZone(awsZone))
 			}
 
+			if err := validateSSHPubKey(cfg.SSHPubKeyPath); err != nil {
+				return err
+			}
+
 			if err := cfg.Save(rootDir); err != nil {
 				return fmt.Errorf("failed to save init config: %w", err)
 			}
@@ -291,6 +295,23 @@ func copyDir(src string, dest string) error {
 		// it's a file; copy it
 		return copyFile(path, target, info.Mode())
 	})
+}
+
+func validateSSHPubKey(path string) error {
+	if !strings.HasSuffix(path, ".pub") {
+		return fmt.Errorf("SSH public key path must end in .pub, got %q (set TALIS_SSH_KEY_PATH or --ssh-pub-key-path to a public key file)", path)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read SSH public key %q: %w", path, err)
+	}
+	head := strings.TrimSpace(strings.SplitN(string(contents), "\n", 2)[0])
+	for _, prefix := range []string{"ssh-rsa ", "ssh-ed25519 ", "ssh-dss ", "ecdsa-sha2-"} {
+		if strings.HasPrefix(head, prefix) {
+			return nil
+		}
+	}
+	return fmt.Errorf("file at %q does not look like an SSH public key (first line: %q). Did you accidentally point TALIS_SSH_KEY_PATH at a private key?", path, head)
 }
 
 // copyFile copies a single file from src to dest, preserving permissions and creating parent directories if needed.

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -13,7 +12,6 @@ const FibreTxSimSessionName = "fibre-txsim"
 func fibreTxsimCmd() *cobra.Command {
 	var (
 		rootDir           string
-		SSHKeyPath        string
 		instances         int
 		concurrency       int
 		blobSize          int
@@ -39,10 +37,8 @@ func fibreTxsimCmd() *cobra.Command {
 				return fmt.Errorf("no validators found in config")
 			}
 
-			resolvedSSHKeyPath := resolveValue(SSHKeyPath, EnvVarSSHKeyPath, strings.ReplaceAll(cfg.SSHPubKeyPath, ".pub", ""))
-
 			if onEncoders {
-				return startFibreTxsimOnEncoders(cfg, resolvedSSHKeyPath, instances, concurrency, blobSize, interval, duration, download, uploadOnly, pyroscopeEndpoint)
+				return startFibreTxsimOnEncoders(cfg, instances, concurrency, blobSize, interval, duration, download, uploadOnly, pyroscopeEndpoint)
 			}
 
 			// Legacy mode: run fibre-txsim on validators themselves
@@ -76,7 +72,7 @@ func fibreTxsimCmd() *cobra.Command {
 
 			fmt.Printf("Starting fibre-txsim sessions on %d validator(s)...\n", len(validators))
 
-			if err := runScriptInTMux(validators, resolvedSSHKeyPath, remoteCmd, FibreTxSimSessionName, 5*time.Minute); err != nil {
+			if err := runScriptInTMux(validators, remoteCmd, FibreTxSimSessionName, 5*time.Minute); err != nil {
 				return fmt.Errorf("failed to start remote sessions: %w", err)
 			}
 
@@ -86,7 +82,6 @@ func fibreTxsimCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&rootDir, "directory", "d", ".", "root directory (for config.json)")
-	cmd.Flags().StringVarP(&SSHKeyPath, "ssh-key-path", "k", "", "path to SSH private key (overrides env/default)")
 	cmd.Flags().IntVar(&instances, "instances", 1, "number of instances to start fibre-txsim on")
 	cmd.Flags().IntVar(&concurrency, "concurrency", 8, "number of concurrent blob submissions per instance")
 	cmd.Flags().IntVar(&blobSize, "blob-size", (128<<20)-5, "size of each blob in bytes (default: 128 MiB - 5 = MaxDataSize, the largest payload that fits in a 128 MiB blob after the 5-byte header)")
@@ -104,7 +99,7 @@ func fibreTxsimCmd() *cobra.Command {
 // startFibreTxsimOnEncoders launches fibre-txsim on each encoder instance.
 // Each encoder is mapped to a validator (round-robin) and uses a unique key
 // prefix (enc0, enc1, ...) so that their escrow accounts are independent.
-func startFibreTxsimOnEncoders(cfg Config, sshKeyPath string, instances, concurrency, blobSize int, interval, duration time.Duration, download, uploadOnly bool, pyroscopeEndpoint string) error {
+func startFibreTxsimOnEncoders(cfg Config, instances, concurrency, blobSize int, interval, duration time.Duration, download, uploadOnly bool, pyroscopeEndpoint string) error {
 	if len(cfg.Encoders) == 0 {
 		return fmt.Errorf("no encoder instances found in config — add encoders via 'talis add -t encoder'")
 	}
@@ -154,7 +149,7 @@ func startFibreTxsimOnEncoders(cfg Config, sshKeyPath string, instances, concurr
 		fmt.Printf("  encoder %s → validator %s (grpc=%s, keys=%s-*)\n",
 			enc.Name, cfg.Validators[valIndex].Name, grpcEndpoint, encKeyPrefix)
 
-		if err := runScriptInTMux([]Instance{enc}, sshKeyPath, remoteCmd, FibreTxSimSessionName, 5*time.Minute); err != nil {
+		if err := runScriptInTMux([]Instance{enc}, remoteCmd, FibreTxSimSessionName, 5*time.Minute); err != nil {
 			return fmt.Errorf("failed to start fibre-txsim on encoder %s: %w", enc.Name, err)
 		}
 	}

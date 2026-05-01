@@ -64,9 +64,22 @@ PROVIDER=digitalocean
 # Get your API token from: https://cloud.digitalocean.com/account/api/tokens
 DIGITALOCEAN_TOKEN=
 
-# SSH Configuration (optional - will use defaults if not set)
-# TALIS_SSH_KEY_PATH=~/.ssh/id_ed25519.pub
-# TALIS_SSH_KEY_NAME=your-username
+# REQUIRED: path to your SSH PUBLIC key (must end in .pub). Talis uploads
+# this key to the provider as the SSH key and bakes its contents into every
+# instance's /root/.ssh/authorized_keys.
+#
+# Talis does NOT need the matching private key. SSH'ing in is delegated to
+# the operator's local ssh client — make sure your default identity files
+# (~/.ssh/id_rsa, ~/.ssh/id_ed25519, etc.), ssh-agent, or ~/.ssh/config
+# can present the matching private key. Quick fix:
+#   ssh-add ~/.ssh/id_ed25519
+# Or per-host:
+#   Host *.compute.amazonaws.com 18.* 3.* 13.* 35.* 54.*
+#     User root
+#     IdentityFile ~/.ssh/id_ed25519
+#     StrictHostKeyChecking no
+TALIS_SSH_KEY_PATH=~/.ssh/id_ed25519.pub
+TALIS_SSH_KEY_NAME=your-username
 
 # DigitalOcean Spaces (optional - for payload distribution)
 # Create a Space and generate API keys at: https://cloud.digitalocean.com/spaces
@@ -91,9 +104,22 @@ GOOGLE_CLOUD_PROJECT=
 # Download the JSON key file and set the path below
 GOOGLE_CLOUD_KEY_JSON_PATH=
 
-# SSH Configuration (optional - will use defaults if not set)
-# TALIS_SSH_KEY_PATH=~/.ssh/id_ed25519.pub
-# TALIS_SSH_KEY_NAME=your-username
+# REQUIRED: path to your SSH PUBLIC key (must end in .pub). Talis uploads
+# this key to the provider as the SSH key and bakes its contents into every
+# instance's /root/.ssh/authorized_keys.
+#
+# Talis does NOT need the matching private key. SSH'ing in is delegated to
+# the operator's local ssh client — make sure your default identity files
+# (~/.ssh/id_rsa, ~/.ssh/id_ed25519, etc.), ssh-agent, or ~/.ssh/config
+# can present the matching private key. Quick fix:
+#   ssh-add ~/.ssh/id_ed25519
+# Or per-host:
+#   Host *.compute.amazonaws.com 18.* 3.* 13.* 35.* 54.*
+#     User root
+#     IdentityFile ~/.ssh/id_ed25519
+#     StrictHostKeyChecking no
+TALIS_SSH_KEY_PATH=~/.ssh/id_ed25519.pub
+TALIS_SSH_KEY_NAME=your-username
 
 # DigitalOcean Spaces (optional - for payload distribution)
 # DO_SPACES_REGION=fra1
@@ -123,11 +149,22 @@ AWS_SECRET_ACCESS_KEY=
 # Region for EC2 and (by default) the S3 payload bucket.
 AWS_DEFAULT_REGION=us-east-1
 
-# SSH Configuration
-# TALIS_SSH_KEY_PATH is the local path to your SSH public key. The key is
-# imported to EC2 (once per region) under TALIS_SSH_KEY_NAME.
-# TALIS_SSH_KEY_PATH=~/.ssh/id_ed25519.pub
-# TALIS_SSH_KEY_NAME=your-username
+# REQUIRED: path to your SSH PUBLIC key (must end in .pub). Talis uploads
+# this key to AWS as the EC2 KeyPair and bakes its contents into every
+# instance's /root/.ssh/authorized_keys.
+#
+# Talis does NOT need the matching private key. SSH'ing in is delegated to
+# the operator's local ssh client — make sure your default identity files
+# (~/.ssh/id_rsa, ~/.ssh/id_ed25519, etc.), ssh-agent, or ~/.ssh/config
+# can present the matching private key. Quick fix:
+#   ssh-add ~/.ssh/id_ed25519
+# Or per-host:
+#   Host *.compute.amazonaws.com 18.* 3.* 13.* 35.* 54.*
+#     User root
+#     IdentityFile ~/.ssh/id_ed25519
+#     StrictHostKeyChecking no
+TALIS_SSH_KEY_PATH=~/.ssh/id_ed25519.pub
+TALIS_SSH_KEY_NAME=your-username
 
 # S3 Payload Bucket (optional — omit and use 'deploy --direct-payload-upload')
 # Must be an S3 bucket you own in AWS_DEFAULT_REGION.

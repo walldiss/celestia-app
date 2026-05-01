@@ -15,7 +15,6 @@ const SetupFibreSessionName = "setup-fibre"
 func setupFibreCmd() *cobra.Command {
 	var (
 		rootDir              string
-		SSHKeyPath           string
 		escrowAmount         string
 		fibrePort            int
 		fees                 string
@@ -37,8 +36,6 @@ func setupFibreCmd() *cobra.Command {
 			if len(cfg.Validators) == 0 {
 				return fmt.Errorf("no validators found in config")
 			}
-
-			resolvedSSHKeyPath := resolveValue(SSHKeyPath, EnvVarSSHKeyPath, strings.ReplaceAll(cfg.SSHPubKeyPath, ".pub", ""))
 
 			sem := make(chan struct{}, workers)
 			var (
@@ -85,7 +82,7 @@ func setupFibreCmd() *cobra.Command {
 					defer func() { <-sem }()
 
 					fmt.Printf("Running setup-fibre on %s (%s) — registering host + %d escrow deposits\n", inst.Name, inst.PublicIP, fibreAccounts)
-					if err := runScriptInTMux([]Instance{inst}, resolvedSSHKeyPath, s, SetupFibreSessionName, time.Minute*30); err != nil {
+					if err := runScriptInTMux([]Instance{inst}, s, SetupFibreSessionName, time.Minute*30); err != nil {
 						mu.Lock()
 						errs = append(errs, fmt.Errorf("%s: %w", inst.Name, err))
 						mu.Unlock()
@@ -100,7 +97,7 @@ func setupFibreCmd() *cobra.Command {
 			}
 
 			fmt.Printf("Waiting for fibre setup to complete (%d accounts per validator)...\n", fibreAccounts)
-			if err := waitForTmuxSessions(cfg.Validators, resolvedSSHKeyPath, SetupFibreSessionName, 10*time.Minute); err != nil {
+			if err := waitForTmuxSessions(cfg.Validators, SetupFibreSessionName, 10*time.Minute); err != nil {
 				return fmt.Errorf("waiting for setup-fibre sessions: %w", err)
 			}
 			fmt.Println("Validator setup done!")
@@ -132,13 +129,13 @@ func setupFibreCmd() *cobra.Command {
 
 					script := sb.String()
 					fmt.Printf("Running escrow deposits on encoder %s (%s) — %d accounts\n", enc.Name, enc.PublicIP, nAccounts)
-					if err := runScriptInTMux([]Instance{enc}, resolvedSSHKeyPath, script, SetupFibreSessionName, 30*time.Minute); err != nil {
+					if err := runScriptInTMux([]Instance{enc}, script, SetupFibreSessionName, 30*time.Minute); err != nil {
 						return fmt.Errorf("encoder %s escrow setup: %w", enc.Name, err)
 					}
 				}
 
 				fmt.Printf("Waiting for encoder escrow deposits to complete...\n")
-				if err := waitForTmuxSessions(cfg.Encoders, resolvedSSHKeyPath, SetupFibreSessionName, 15*time.Minute); err != nil {
+				if err := waitForTmuxSessions(cfg.Encoders, SetupFibreSessionName, 15*time.Minute); err != nil {
 					return fmt.Errorf("waiting for encoder setup-fibre sessions: %w", err)
 				}
 				fmt.Println("Encoder escrow setup done!")
@@ -149,7 +146,6 @@ func setupFibreCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&rootDir, "directory", "d", ".", "root directory in which to initialize")
-	cmd.Flags().StringVarP(&SSHKeyPath, "ssh-key-path", "k", "", "path to the user's SSH key")
 	cmd.Flags().StringVar(&escrowAmount, "escrow-amount", "200000000000000utia", "amount to deposit into escrow")
 	cmd.Flags().IntVar(&fibrePort, "fibre-port", 7980, "fibre gRPC port on validators")
 	cmd.Flags().StringVar(&fees, "fees", "5000utia", "transaction fees")

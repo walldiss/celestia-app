@@ -32,7 +32,6 @@ func startLatencyMonitorCmd() *cobra.Command {
 		observabilityPort int
 		promtailConfig    string
 		rootDir           string
-		SSHKeyPath        string
 		stop              bool
 		workers           int
 	)
@@ -55,8 +54,6 @@ func startLatencyMonitorCmd() *cobra.Command {
 				promtailConfig = filepath.Join(rootDir, "observability", "promtail", "promtail-config.yml")
 			}
 
-			resolvedSSHKeyPath := resolveValue(SSHKeyPath, EnvVarSSHKeyPath, strings.ReplaceAll(cfg.SSHPubKeyPath, ".pub", ""))
-
 			// Only operate on the number of instances that were specified
 			insts := []Instance{}
 			for i, val := range cfg.Validators {
@@ -68,13 +65,13 @@ func startLatencyMonitorCmd() *cobra.Command {
 
 			if stop {
 				fmt.Printf("Stopping latency monitor on %d instance(s)...\n", len(insts))
-				return stopTmuxSession(insts, resolvedSSHKeyPath, LatencyMonitorSessionName, time.Minute*5)
+				return stopTmuxSession(insts, LatencyMonitorSessionName, time.Minute*5)
 			}
 
 			// Derive Loki URL from observability public IP
 			var lokiURL string
 			if len(cfg.Observability) > 0 {
-				if err := updateLatencyTargets(cfg, cfg.Observability[0], resolvedSSHKeyPath, insts); err != nil {
+				if err := updateLatencyTargets(cfg, cfg.Observability[0], insts); err != nil {
 					return err
 				}
 
@@ -105,16 +102,15 @@ func startLatencyMonitorCmd() *cobra.Command {
 
 			fmt.Printf("Starting latency monitor on %d instance(s)...\n", len(insts))
 
-			if err := runScriptInTMux(insts, resolvedSSHKeyPath, latencyMonitorScript, LatencyMonitorSessionName, time.Minute*5); err != nil {
+			if err := runScriptInTMux(insts, latencyMonitorScript, LatencyMonitorSessionName, time.Minute*5); err != nil {
 				return err
 			}
-			return verifyLatencyMonitorStart(insts, resolvedSSHKeyPath, lokiURL != "", 30*time.Second)
+			return verifyLatencyMonitorStart(insts, lokiURL != "", 30*time.Second)
 		},
 	}
 
 	// Define flags for the command
 	cmd.Flags().StringVarP(&rootDir, "directory", "d", ".", "root directory in which to initialize")
-	cmd.Flags().StringVarP(&SSHKeyPath, "ssh-key-path", "k", "", "path to the user's SSH key (overrides environment variable and default)")
 	cmd.Flags().IntVarP(&instances, "instances", "i", 1, "the number of instances of latency monitor, each ran on its own validator")
 	cmd.Flags().IntVarP(&blobSize, "blob-size", "b", 1024, "the max number of bytes in each blob")
 	cmd.Flags().IntVarP(&blobSizeMin, "blob-size-min", "z", 1024, "the min number of bytes in each blob")
@@ -176,7 +172,7 @@ func ensureLokiPushURL(lokiURL string, configIncludesPushPath bool) string {
 }
 
 // updateLatencyTargets updates the latency monitor targets on the observability monitoring node. It shows the nodes that are currently running the latency monitor.
-func updateLatencyTargets(cfg Config, observabilityNode Instance, sshKeyPath string, instances []Instance) error {
+func updateLatencyTargets(cfg Config, observabilityNode Instance, instances []Instance) error {
 	groups, skipped, err := buildObservabilityTargetsForInstances(instances, cfg, latencyMonitorMetricsPort, "public", "validator")
 	if err != nil {
 		return err
@@ -200,7 +196,6 @@ func updateLatencyTargets(cfg Config, observabilityNode Instance, sshKeyPath str
 
 	ssh := exec.CommandContext(ctx,
 		"ssh",
-		"-i", sshKeyPath,
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		fmt.Sprintf("root@%s", observabilityNode.PublicIP),
@@ -214,7 +209,7 @@ func updateLatencyTargets(cfg Config, observabilityNode Instance, sshKeyPath str
 	return nil
 }
 
-func verifyLatencyMonitorStart(instances []Instance, sshKeyPath string, expectPromtail bool, timeout time.Duration) error {
+func verifyLatencyMonitorStart(instances []Instance, expectPromtail bool, timeout time.Duration) error {
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(instances))
 
@@ -229,7 +224,6 @@ func verifyLatencyMonitorStart(instances []Instance, sshKeyPath string, expectPr
 			runSSH := func(cmd string) ([]byte, error) {
 				ssh := exec.CommandContext(ctx,
 					"ssh",
-					"-i", sshKeyPath,
 					"-o", "StrictHostKeyChecking=no",
 					"-o", "UserKnownHostsFile=/dev/null",
 					fmt.Sprintf("root@%s", inst.PublicIP),
@@ -294,7 +288,6 @@ const (
 // to force-killing the session if it doesn't stop within the timeout.
 func stopTmuxSession(
 	instances []Instance,
-	sshKeyPath string,
 	sessionName string,
 	timeout time.Duration,
 ) error {
@@ -314,7 +307,6 @@ func stopTmuxSession(
 			runSSH := func(cmd string) ([]byte, error) {
 				ssh := exec.CommandContext(ctx,
 					"ssh",
-					"-i", sshKeyPath,
 					"-o", "StrictHostKeyChecking=no",
 					"-o", "UserKnownHostsFile=/dev/null",
 					fmt.Sprintf("root@%s", inst.PublicIP),

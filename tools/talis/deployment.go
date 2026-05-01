@@ -55,6 +55,10 @@ func upCmd() *cobra.Command {
 			cfg.GoogleCloudKeyJSONPath = resolveValue(GCKeyJSONPath, EnvVarGoogleCloudKeyJSONPath, cfg.GoogleCloudKeyJSONPath)
 			cfg.AWSRegion = resolveValue(AWSRegion, EnvVarAWSRegion, cfg.AWSRegion)
 
+			if err := validateSSHPubKey(cfg.SSHPubKeyPath); err != nil {
+				return err
+			}
+
 			if err := checkForRunningExperiments(cmd.Context(), cfg); err != nil {
 				return err
 			}
@@ -93,7 +97,6 @@ func deployCmd() *cobra.Command {
 	var (
 		rootDir      string
 		cfgPath      string
-		SSHKeyPath   string
 		directUpload bool
 		ignoreFailed bool
 		workers      int
@@ -122,38 +125,36 @@ func deployCmd() *cobra.Command {
 				return fmt.Errorf("no validators found in config")
 			}
 
+			if err := validateSSHPubKey(cfg.SSHPubKeyPath); err != nil {
+				return err
+			}
+
 			log.Printf("Sending payload to validators...")
 			if directUpload {
-				if err := deployPayloadDirect(cfg.Validators, tarPath, SSHKeyPath, "/root", "payload/validator_init.sh", 7*time.Minute, workers); err != nil {
+				if err := deployPayloadDirect(cfg.Validators, tarPath, "/root", "payload/validator_init.sh", 7*time.Minute, workers); err != nil {
 					if !ignoreFailed {
 						return err
 					}
 					log.Printf("continuing despite validator deployment errors: %v", err)
 				}
-				if err := deployObservabilityIfConfigured(cmd.Context(), cfg, rootDir, SSHKeyPath, directUpload); err != nil {
+				if err := deployObservabilityIfConfigured(cmd.Context(), cfg, rootDir, directUpload); err != nil {
 					return err
 				}
-				return deployEncodersIfConfigured(cmd.Context(), cfg, rootDir, SSHKeyPath, directUpload, workers)
+				return deployEncodersIfConfigured(cmd.Context(), cfg, rootDir, directUpload, workers)
 			}
-			if err := deployPayloadViaS3(cmd.Context(), rootDir, cfg.Validators, tarPath, SSHKeyPath, "/root", "payload/validator_init.sh", 7*time.Minute, cfg.S3Config, workers); err != nil {
+			if err := deployPayloadViaS3(cmd.Context(), rootDir, cfg.Validators, tarPath, "/root", "payload/validator_init.sh", 7*time.Minute, cfg.S3Config, workers); err != nil {
 				if !ignoreFailed {
 					return err
 				}
 				log.Printf("continuing despite validator deployment errors: %v", err)
 			}
-			if err := deployObservabilityIfConfigured(cmd.Context(), cfg, rootDir, SSHKeyPath, directUpload); err != nil {
+			if err := deployObservabilityIfConfigured(cmd.Context(), cfg, rootDir, directUpload); err != nil {
 				return err
 			}
-			return deployEncodersIfConfigured(cmd.Context(), cfg, rootDir, SSHKeyPath, directUpload, workers)
+			return deployEncodersIfConfigured(cmd.Context(), cfg, rootDir, directUpload, workers)
 		},
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		log.Fatalf("failed to get user home directory: %v", err)
-	}
-	defaultKeyPath := filepath.Join(homeDir, ".ssh", "id_ed25519")
-	cmd.Flags().StringVarP(&SSHKeyPath, "ssh-pub-key-path", "s", defaultKeyPath, "path to the user's SSH key")
 	cmd.Flags().StringVarP(&rootDir, "directory", "d", ".", "root directory in which to initialize")
 	cmd.Flags().StringVarP(&cfgPath, "config", "c", "config.json", "name of the config")
 	cmd.Flags().BoolVar(&directUpload, "direct-payload-upload", false, "Upload payload directly to nodes instead of using S3")
@@ -163,7 +164,7 @@ func deployCmd() *cobra.Command {
 	return cmd
 }
 
-func deployObservabilityIfConfigured(ctx context.Context, cfg Config, rootDir, sshKeyPath string, directUpload bool) error {
+func deployObservabilityIfConfigured(ctx context.Context, cfg Config, rootDir string, directUpload bool) error {
 	if len(cfg.Observability) == 0 {
 		return nil
 	}
@@ -182,9 +183,9 @@ func deployObservabilityIfConfigured(ctx context.Context, cfg Config, rootDir, s
 	log.Printf("Sending observability payload to observability monitoring node...")
 	var err error
 	if directUpload {
-		err = deployObservabilityPayloadDirect(observabilityNode, observabilityTarPath, sshKeyPath, "/root", 15*time.Minute)
+		err = deployObservabilityPayloadDirect(observabilityNode, observabilityTarPath, "/root", 15*time.Minute)
 	} else {
-		err = deployObservabilityPayloadViaS3(ctx, rootDir, observabilityNode, observabilityTarPath, sshKeyPath, "/root", 15*time.Minute, cfg.S3Config)
+		err = deployObservabilityPayloadViaS3(ctx, rootDir, observabilityNode, observabilityTarPath, "/root", 15*time.Minute, cfg.S3Config)
 	}
 	if err != nil {
 		return err
@@ -196,7 +197,7 @@ func deployObservabilityIfConfigured(ctx context.Context, cfg Config, rootDir, s
 
 // deployEncodersIfConfigured creates a lightweight encoder-payload tar and deploys
 // it to all configured encoder instances.
-func deployEncodersIfConfigured(ctx context.Context, cfg Config, rootDir, sshKeyPath string, directUpload bool, workers int) error {
+func deployEncodersIfConfigured(ctx context.Context, cfg Config, rootDir string, directUpload bool, workers int) error {
 	if len(cfg.Encoders) == 0 {
 		return nil
 	}
@@ -216,11 +217,11 @@ func deployEncodersIfConfigured(ctx context.Context, cfg Config, rootDir, sshKey
 	log.Printf("Sending encoder payload to %d encoder(s)...\n", len(cfg.Encoders))
 
 	if directUpload {
-		if err := deployPayloadDirect(cfg.Encoders, encoderTarPath, sshKeyPath, "/root", "encoder-payload/encoder_init.sh", 7*time.Minute, workers); err != nil {
+		if err := deployPayloadDirect(cfg.Encoders, encoderTarPath, "/root", "encoder-payload/encoder_init.sh", 7*time.Minute, workers); err != nil {
 			return fmt.Errorf("encoder deployment: %w", err)
 		}
 	} else {
-		if err := deployPayloadViaS3(ctx, rootDir, cfg.Encoders, encoderTarPath, sshKeyPath, "/root", "encoder-payload/encoder_init.sh", 7*time.Minute, cfg.S3Config, workers); err != nil {
+		if err := deployPayloadViaS3(ctx, rootDir, cfg.Encoders, encoderTarPath, "/root", "encoder-payload/encoder_init.sh", 7*time.Minute, cfg.S3Config, workers); err != nil {
 			return fmt.Errorf("encoder deployment: %w", err)
 		}
 	}
@@ -245,7 +246,6 @@ func printGrafanaInfo(node Instance, rootDir string) {
 func deployPayloadDirect(
 	ips []Instance,
 	archivePath string, // e.g. "./payload.tar.gz"
-	sshKeyPath string, // e.g. "~/.ssh/id_ed25519"
 	remoteDir string, // e.g. "/root"
 	remoteScript string, // e.g. "start.sh"
 	timeout time.Duration, // per‐host timeout
@@ -271,7 +271,6 @@ func deployPayloadDirect(
 
 			scp := exec.CommandContext(ctx,
 				"scp",
-				"-i", sshKeyPath,
 				"-o", "StrictHostKeyChecking=no",
 				"-o", "UserKnownHostsFile=/dev/null",
 				archivePath,
@@ -295,7 +294,6 @@ func deployPayloadDirect(
 
 			ssh := exec.CommandContext(ctx,
 				"ssh",
-				"-i", sshKeyPath,
 				"-o", "StrictHostKeyChecking=no",
 				"-o", "UserKnownHostsFile=/dev/null",
 				fmt.Sprintf("root@%s", inst.PublicIP),
@@ -333,7 +331,6 @@ func deployPayloadViaS3(
 	rootDir string,
 	ips []Instance,
 	archivePath string,
-	sshKeyPath string,
 	remoteDir string,
 	remoteScript string,
 	timeout time.Duration,
@@ -383,7 +380,6 @@ func deployPayloadViaS3(
 
 			ssh := exec.CommandContext(ctx,
 				"ssh",
-				"-i", sshKeyPath,
 				"-o", "StrictHostKeyChecking=no",
 				"-o", "UserKnownHostsFile=/dev/null",
 				fmt.Sprintf("root@%s", inst.PublicIP),
@@ -420,7 +416,6 @@ func deployPayloadViaS3(
 func deployObservabilityPayloadDirect(
 	inst Instance,
 	archivePath string,
-	sshKeyPath string,
 	remoteDir string,
 	timeout time.Duration,
 ) error {
@@ -431,7 +426,6 @@ func deployObservabilityPayloadDirect(
 
 	scp := exec.CommandContext(ctx,
 		"scp",
-		"-i", sshKeyPath,
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		archivePath,
@@ -455,7 +449,6 @@ func deployObservabilityPayloadDirect(
 
 	ssh := exec.CommandContext(ctx,
 		"ssh",
-		"-i", sshKeyPath,
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		fmt.Sprintf("root@%s", inst.PublicIP),
@@ -475,7 +468,6 @@ func deployObservabilityPayloadViaS3(
 	rootDir string,
 	inst Instance,
 	archivePath string,
-	sshKeyPath string,
 	remoteDir string,
 	timeout time.Duration,
 	s3cfg S3Config,
@@ -514,7 +506,6 @@ func deployObservabilityPayloadViaS3(
 
 	ssh := exec.CommandContext(ctx,
 		"ssh",
-		"-i", sshKeyPath,
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		fmt.Sprintf("root@%s", inst.PublicIP),

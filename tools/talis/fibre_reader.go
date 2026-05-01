@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -13,7 +12,6 @@ const FibreReaderSessionName = "fibre-reader"
 func fibreReaderCmd() *cobra.Command {
 	var (
 		rootDir             string
-		SSHKeyPath          string
 		instances           int
 		downloadConcurrency int
 		downloadTimeout     time.Duration
@@ -37,8 +35,6 @@ func fibreReaderCmd() *cobra.Command {
 			if len(cfg.Validators) == 0 {
 				return fmt.Errorf("no validators found in config")
 			}
-
-			resolvedSSHKeyPath := resolveValue(SSHKeyPath, EnvVarSSHKeyPath, strings.ReplaceAll(cfg.SSHPubKeyPath, ".pub", ""))
 
 			n := len(cfg.Readers)
 			if instances > 0 && instances < n {
@@ -82,7 +78,7 @@ func fibreReaderCmd() *cobra.Command {
 				fmt.Printf("  reader %s -> validator %s (rpc=%s, grpc=%s, index=%d/%d)\n",
 					r.Name, target.Name, rpcEndpoint, grpcEndpoint, readerIndex, readerCount)
 
-				if err := runScriptInTMux([]Instance{r}, resolvedSSHKeyPath, remoteCmd, FibreReaderSessionName, 5*time.Minute); err != nil {
+				if err := runScriptInTMux([]Instance{r}, remoteCmd, FibreReaderSessionName, 5*time.Minute); err != nil {
 					return fmt.Errorf("failed to start fibre-reader on %s: %w", r.Name, err)
 				}
 			}
@@ -93,7 +89,6 @@ func fibreReaderCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&rootDir, "directory", "d", ".", "root directory (for config.json)")
-	cmd.Flags().StringVarP(&SSHKeyPath, "ssh-key-path", "k", "", "path to SSH private key (overrides env/default)")
 	cmd.Flags().IntVar(&instances, "instances", 0, "max number of reader instances to launch (0 = all)")
 	cmd.Flags().IntVar(&downloadConcurrency, "download-concurrency", 32, "max concurrent in-flight downloads per reader (semaphore bound; goroutine spawned per blob)")
 	cmd.Flags().DurationVar(&downloadTimeout, "download-timeout", 2*time.Minute, "per-blob download timeout")

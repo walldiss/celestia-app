@@ -13,7 +13,6 @@ func resetCmd() *cobra.Command {
 	var (
 		rootDir    string
 		cfgPath    string
-		SSHKeyPath string
 		validators []string
 		workers    int
 	)
@@ -32,8 +31,6 @@ func resetCmd() *cobra.Command {
 			if len(cfg.Validators) == 0 {
 				return fmt.Errorf("no validators found in config")
 			}
-
-			resolvedKey := resolveValue(SSHKeyPath, EnvVarSSHKeyPath, strings.ReplaceAll(cfg.SSHPubKeyPath, ".pub", ""))
 
 			// Filter validators if specific ones were requested
 			targetValidators := cfg.Validators
@@ -70,7 +67,7 @@ func resetCmd() *cobra.Command {
 					workerChan <- struct{}{}
 					defer func() { <-workerChan }()
 					fmt.Printf("Resetting validator %s...\n", v.Name)
-					if err := runScriptInTMux([]Instance{v}, resolvedKey, cleanupScript, "cleanup", time.Minute*5); err != nil {
+					if err := runScriptInTMux([]Instance{v}, cleanupScript, "cleanup", time.Minute*5); err != nil {
 						fmt.Printf("Warning: error while cleaning up %s: %v\n", v.Name, err)
 					}
 				}(val)
@@ -94,7 +91,7 @@ func resetCmd() *cobra.Command {
 						encWorkerChan <- struct{}{}
 						defer func() { <-encWorkerChan }()
 						fmt.Printf("Resetting encoder %s...\n", e.Name)
-						if err := runScriptInTMux([]Instance{e}, resolvedKey, encoderCleanup, "cleanup", time.Minute*5); err != nil {
+						if err := runScriptInTMux([]Instance{e}, encoderCleanup, "cleanup", time.Minute*5); err != nil {
 							fmt.Printf("Warning: error while cleaning up %s: %v\n", e.Name, err)
 						}
 					}(enc)
@@ -119,7 +116,7 @@ func resetCmd() *cobra.Command {
 						obsWorkerChan <- struct{}{}
 						defer func() { <-obsWorkerChan }()
 						fmt.Printf("Resetting observability node %s...\n", o.Name)
-						if err := runScriptInTMux([]Instance{o}, resolvedKey, observabilityCleanup, "obs-cleanup", time.Minute*5); err != nil {
+						if err := runScriptInTMux([]Instance{o}, observabilityCleanup, "obs-cleanup", time.Minute*5); err != nil {
 							fmt.Printf("Warning: error while cleaning up %s: %v\n", o.Name, err)
 						}
 					}(obs)
@@ -133,7 +130,6 @@ func resetCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&rootDir, "directory", "d", ".", "root directory to load config from")
 	cmd.Flags().StringVarP(&cfgPath, "config", "c", "config.json", "config file name")
-	cmd.Flags().StringVarP(&SSHKeyPath, "ssh-key-path", "k", "", "override path to your SSH private key")
 	cmd.Flags().StringSliceVarP(&validators, "validators", "v", []string{}, "optional list of validator names to reset (e.g. validator-0,validator-1)")
 	cmd.Flags().IntVarP(&workers, "workers", "w", 10, "number of concurrent workers for parallel operations (should be > 0)")
 

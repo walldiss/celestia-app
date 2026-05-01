@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -10,10 +9,7 @@ import (
 
 // uploadDataCmd creates a cobra command for kicking off trace collection
 func uploadDataCmd() *cobra.Command {
-	var (
-		rootDir    string
-		SSHKeyPath string
-	)
+	var rootDir string
 
 	cmd := &cobra.Command{
 		Use:     "upload-data",
@@ -30,16 +26,9 @@ func uploadDataCmd() *cobra.Command {
 				return fmt.Errorf("no validators (nodes) found in config")
 			}
 
-			resolvedKey := resolveValue(
-				SSHKeyPath,
-				EnvVarSSHKeyPath,
-				strings.ReplaceAll(cfg.SSHPubKeyPath, ".pub", ""),
-			)
-
 			const sessionName = "traces"
 			return runScriptInTMux(
 				cfg.Validators,
-				resolvedKey,
 				"source /root/payload/upload_traces.sh",
 				sessionName,
 				time.Minute*5,
@@ -49,6 +38,5 @@ func uploadDataCmd() *cobra.Command {
 
 	// define your flags
 	cmd.Flags().StringVarP(&rootDir, "directory", "d", ".", "root directory containing your config")
-	cmd.Flags().StringVarP(&SSHKeyPath, "ssh-key-path", "k", "", "override path to your SSH private key")
 	return cmd
 }

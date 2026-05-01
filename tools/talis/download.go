@@ -16,7 +16,6 @@ func downloadCmd() *cobra.Command {
 	var (
 		rootDir    string
 		cfgPath    string
-		SSHKeyPath string
 		nodes      string
 		table      string
 		workers    int
@@ -88,13 +87,13 @@ func downloadCmd() *cobra.Command {
 					}
 					if noCompress {
 						for _, remotePath := range remotePaths {
-							err := sftpDownload(remotePath, localPath, "root", node.PublicIP, SSHKeyPath)
+							err := sftpDownload(remotePath, localPath, "root", node.PublicIP)
 							if err != nil {
 								fmt.Printf("failed to download from %s: %v\n", node.PublicIP, err)
 							}
 						}
 					} else {
-						if err := compressAndDownload(table, localPath, "root", node.PublicIP, SSHKeyPath); err != nil {
+						if err := compressAndDownload(table, localPath, "root", node.PublicIP); err != nil {
 							fmt.Printf("failed to download from %s: %v\n", node.PublicIP, err)
 							return
 						}
@@ -126,7 +125,6 @@ func downloadCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&rootDir, "directory", "d", ".", "root directory containing your config")
 	cmd.Flags().StringVarP(&cfgPath, "config", "c", "config.json", "path to your network config file")
-	cmd.Flags().StringVarP(&SSHKeyPath, "ssh-key-path", "k", "", "override path to your SSH private key")
 	cmd.Flags().StringVarP(&nodes, "nodes", "n", "*", "specify the node(s) to download from. * or specific nodes.")
 	cmd.Flags().StringVarP(&table, "tables", "t", "*", "specify tables to download (comma-separated) or logs to download logs. default is all tables.")
 	cmd.Flags().IntVarP(&workers, "workers", "w", 10, "number of concurrent workers for parallel operations (should be > 0)")
@@ -140,7 +138,7 @@ func downloadCmd() *cobra.Command {
 // compressAndDownload compresses data on the remote server using xz -6
 // before downloading, then extracts locally. This significantly reduces
 // bandwidth for JSONL trace files which compress very well (often 15-25x).
-func compressAndDownload(table, localPath, user, host, sshKeyPath string) error {
+func compressAndDownload(table, localPath, user, host string) error {
 	baseTracesRemotePath := "/root/.celestia-app/data/traces"
 	remoteArchive := "/tmp/talis-traces.tar.xz"
 
@@ -168,14 +166,14 @@ func compressAndDownload(table, localPath, user, host, sshKeyPath string) error 
 	}
 
 	fmt.Printf("[%s] Compressing data on remote server...\n", host)
-	out, err := sshExec(user, host, sshKeyPath, compressCmd)
+	out, err := sshExec(user, host, compressCmd)
 	if err != nil {
 		return fmt.Errorf("remote compression failed: %v\n%s", err, string(out))
 	}
 
 	fmt.Printf("[%s] Downloading compressed archive...\n", host)
-	if err := sftpDownload(remoteArchive, localPath, user, host, sshKeyPath); err != nil {
-		_, _ = sshExec(user, host, sshKeyPath, "rm -f "+remoteArchive)
+	if err := sftpDownload(remoteArchive, localPath, user, host); err != nil {
+		_, _ = sshExec(user, host, "rm -f "+remoteArchive)
 		return fmt.Errorf("download failed: %v", err)
 	}
 
@@ -187,37 +185,35 @@ func compressAndDownload(table, localPath, user, host, sshKeyPath string) error 
 	}
 
 	os.Remove(localArchive)
-	_, _ = sshExec(user, host, sshKeyPath, "rm -f "+remoteArchive)
+	_, _ = sshExec(user, host, "rm -f "+remoteArchive)
 
 	fmt.Printf("[%s] Download complete.\n", host)
 	return nil
 }
 
 // sshExec runs a command on a remote host via SSH and returns the combined output.
-func sshExec(user, host, sshKeyPath, command string) ([]byte, error) {
+func sshExec(user, host, command string) ([]byte, error) {
 	cmd := exec.Command("ssh",
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
-		"-i", sshKeyPath,
 		fmt.Sprintf("%s@%s", user, host),
 		command,
 	)
 	return cmd.CombinedOutput()
 }
 
-func sftpDownload(remotePath, localPath, user, host, sshKeyPath string) error {
+func sftpDownload(remotePath, localPath, user, host string) error {
 	target := fmt.Sprintf("%s@%s:%s", user, host, remotePath)
 
 	// Use `-r` always — safe for both files and dirs in practice
 	cmd := exec.Command("sftp",
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
-		"-i", sshKeyPath,
 		"-r", target,
 		localPath,
 	)
 
-	fmt.Printf("Running: sftp -i %s -r %s %s\n", sshKeyPath, target, localPath)
+	fmt.Printf("Running: sftp -r %s %s\n", target, localPath)
 	return cmd.Run()
 }
 

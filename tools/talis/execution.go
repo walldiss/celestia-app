@@ -18,7 +18,6 @@ import (
 // It uses the same timeout per host and returns a combined error if any fail.
 func runScriptInTMux(
 	instances []Instance,
-	sshKeyPath string, // e.g. "~/.ssh/id_ed25519"
 	remoteScript string, // e.g. "source /root/start.sh" or "celestia-appd start"
 	sessionName string, // e.g. "app"
 	timeout time.Duration,
@@ -50,7 +49,6 @@ func runScriptInTMux(
 
 			ssh := exec.CommandContext(ctx,
 				"ssh",
-				"-i", sshKeyPath,
 				"-o", "StrictHostKeyChecking=no",
 				"-o", "UserKnownHostsFile=/dev/null",
 				fmt.Sprintf("root@%s", inst.PublicIP),
@@ -89,7 +87,7 @@ func runScriptInTMux(
 
 // waitForTmuxSessions polls all instances until the named tmux session no longer
 // exists on any of them (i.e. the script finished), or until the timeout expires.
-func waitForTmuxSessions(instances []Instance, sshKeyPath, sessionName string, timeout time.Duration) error {
+func waitForTmuxSessions(instances []Instance, sessionName string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	poll := 10 * time.Second
 
@@ -113,7 +111,6 @@ func waitForTmuxSessions(instances []Instance, sshKeyPath, sessionName string, t
 				defer cancel()
 				ssh := exec.CommandContext(ctx,
 					"ssh",
-					"-i", sshKeyPath,
 					"-o", "StrictHostKeyChecking=no",
 					"-o", "UserKnownHostsFile=/dev/null",
 					fmt.Sprintf("root@%s", inst.PublicIP),

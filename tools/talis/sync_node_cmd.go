@@ -141,7 +141,6 @@ func syncNodeCmd() *cobra.Command {
 	var (
 		rootDir       string
 		sshPubKeyPath string
-		sshKeyPath    string
 		gcProject     string
 		gcKeyJSONPath string
 		region        string
@@ -174,11 +173,6 @@ from genesis with --block-sync-only), measures sync time, and tears down the ins
 
 			if cfg.GoogleCloudProject == "" {
 				return fmt.Errorf("google cloud project is required (use --gc-project, env GOOGLE_CLOUD_PROJECT, or config)")
-			}
-
-			resolvedSSHKeyPath := resolveValue(sshKeyPath, EnvVarSSHKeyPath, strings.ReplaceAll(cfg.SSHPubKeyPath, ".pub", ""))
-			if resolvedSSHKeyPath == "" {
-				return fmt.Errorf("SSH private key path is required (use --ssh-key-path or set ssh_pub_key_path in config)")
 			}
 
 			sshPubKey, err := os.ReadFile(cfg.SSHPubKeyPath)
@@ -278,22 +272,21 @@ from genesis with --block-sync-only), measures sync time, and tears down the ins
 
 			// Wait for SSH to become available
 			log.Printf("Waiting for SSH to become available on %s...", inst.PublicIP)
-			log.Printf("  SSH private key: %s", resolvedSSHKeyPath)
 			log.Printf("  SSH public key:  %s", cfg.SSHPubKeyPath)
-			if err := waitForSSH(ctx, inst.PublicIP, resolvedSSHKeyPath, 2*time.Minute); err != nil {
+			if err := waitForSSH(ctx, inst.PublicIP, 2*time.Minute); err != nil {
 				return fmt.Errorf("SSH not available: %w", err)
 			}
 			log.Printf("SSH is available")
 
 			// SCP the binary to the instance
 			log.Printf("Uploading celestia-appd binary to %s...", inst.PublicIP)
-			if err := scpFile(ctx, binaryPath, inst.PublicIP, "/usr/local/bin/celestia-appd", resolvedSSHKeyPath); err != nil {
+			if err := scpFile(ctx, binaryPath, inst.PublicIP, "/usr/local/bin/celestia-appd"); err != nil {
 				return fmt.Errorf("failed to upload binary: %w", err)
 			}
 			log.Printf("Binary uploaded successfully")
 
 			// Make binary executable
-			if err := runSSHCommand(ctx, inst.PublicIP, resolvedSSHKeyPath, "chmod +x /usr/local/bin/celestia-appd"); err != nil {
+			if err := runSSHCommand(ctx, inst.PublicIP, "chmod +x /usr/local/bin/celestia-appd"); err != nil {
 				return fmt.Errorf("failed to chmod binary: %w", err)
 			}
 
@@ -307,7 +300,7 @@ from genesis with --block-sync-only), measures sync time, and tears down the ins
 				script := buildSyncScript(cfg.ChainID, rpcEndpoint, peers, i, iterations, blockSyncOnly)
 				log.Printf("Starting sync measurement on %s...", inst.PublicIP)
 
-				output, err := runSSHStreaming(ctx, inst.PublicIP, resolvedSSHKeyPath, script)
+				output, err := runSSHStreaming(ctx, inst.PublicIP, script)
 				if err != nil {
 					return fmt.Errorf("sync test failed on iteration %d: %w", i, err)
 				}
@@ -339,7 +332,6 @@ from genesis with --block-sync-only), measures sync time, and tears down the ins
 
 	cmd.Flags().StringVarP(&rootDir, "directory", "d", ".", "root directory with config.json")
 	cmd.Flags().StringVarP(&sshPubKeyPath, "ssh-pub-key-path", "s", "", "path to SSH public key")
-	cmd.Flags().StringVar(&sshKeyPath, "ssh-key-path", "", "path to SSH private key (default: derived from config's ssh_pub_key_path)")
 	cmd.Flags().StringVar(&gcProject, "gc-project", "", "Google Cloud project")
 	cmd.Flags().StringVar(&gcKeyJSONPath, "gc-key-json-path", "", "path to Google Cloud service account key JSON")
 	cmd.Flags().StringVarP(&region, "region", "r", "random", "GCP region for the sync node")
@@ -353,7 +345,7 @@ from genesis with --block-sync-only), measures sync time, and tears down the ins
 }
 
 // waitForSSH polls until an SSH connection succeeds or the timeout is reached.
-func waitForSSH(ctx context.Context, ip, sshKeyPath string, timeout time.Duration) error {
+func waitForSSH(ctx context.Context, ip string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	attempt := 0
 	var lastErr error
@@ -363,7 +355,6 @@ func waitForSSH(ctx context.Context, ip, sshKeyPath string, timeout time.Duratio
 		sshCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		ssh := exec.CommandContext(sshCtx,
 			"ssh",
-			"-i", sshKeyPath,
 			"-o", "StrictHostKeyChecking=no",
 			"-o", "UserKnownHostsFile=/dev/null",
 			"-o", "ConnectTimeout=5",
@@ -398,10 +389,9 @@ func truncateOutput(s string, maxLen int) string {
 }
 
 // scpFile copies a local file to a remote path via SCP.
-func scpFile(ctx context.Context, localPath, ip, remotePath, sshKeyPath string) error {
+func scpFile(ctx context.Context, localPath, ip, remotePath string) error {
 	scp := exec.CommandContext(ctx,
 		"scp",
-		"-i", sshKeyPath,
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		localPath,
@@ -414,10 +404,9 @@ func scpFile(ctx context.Context, localPath, ip, remotePath, sshKeyPath string) 
 }
 
 // runSSHCommand runs a command on a remote host via SSH and returns the error if any.
-func runSSHCommand(ctx context.Context, ip, sshKeyPath, command string) error {
+func runSSHCommand(ctx context.Context, ip, command string) error {
 	ssh := exec.CommandContext(ctx,
 		"ssh",
-		"-i", sshKeyPath,
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		fmt.Sprintf("root@%s", ip),
@@ -432,11 +421,10 @@ func runSSHCommand(ctx context.Context, ip, sshKeyPath, command string) error {
 // runSSHStreaming runs a command on a remote host via SSH, streaming stdout/stderr
 // directly to the user's terminal for real-time output. It also captures stdout
 // and returns it for parsing.
-func runSSHStreaming(ctx context.Context, ip, sshKeyPath, command string) (string, error) {
+func runSSHStreaming(ctx context.Context, ip, command string) (string, error) {
 	var buf bytes.Buffer
 	ssh := exec.CommandContext(ctx,
 		"ssh",
-		"-i", sshKeyPath,
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "ServerAliveInterval=30",

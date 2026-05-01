@@ -132,5 +132,14 @@ AWS_DEFAULT_REGION=us-east-1
 # S3 Payload Bucket (optional — omit and use 'deploy --direct-payload-upload')
 # Must be an S3 bucket you own in AWS_DEFAULT_REGION.
 # AWS_S3_BUCKET=
+
+# Cluster placement group: talis derives the PG name as
+#   "talis-cluster-<chain-id>"
+# at runtime, so each experiment gets its own PG and concurrent
+# experiments don't collide on AZ. A PG is locked to the AZ of its first
+# instance — sharing a single PG across experiments would force everyone
+# into the same AZ even when one is short on capacity. Pick a unique
+# --chainID (e.g. include your initials or a timestamp) when running
+# alongside other tests in the same AWS account.
 `
 }

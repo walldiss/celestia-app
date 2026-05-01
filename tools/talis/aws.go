@@ -41,10 +41,13 @@ const (
 	// talis instance. It is created per-region on demand and permits all
 	// inbound traffic — same posture as the GCP firewall rule.
 	AWSSecurityGroupName = "talis-allow-all"
-	// AWSPlacementGroupName is the name of the cluster placement group used
-	// by every talis instance in a region. Cluster strategy gives the lowest
-	// inter-instance latency within an AZ — critical for fibre/p2p.
-	AWSPlacementGroupName = "talis-cluster"
+	// AWSPlacementGroupPrefix is the prefix for cluster placement group names.
+	// The full name is derived per-experiment as "<prefix>-<chain-id>" (see
+	// [awsPlacementGroupName]) so concurrent experiments in the same AWS
+	// account don't collide on the same PG — a PG is locked to the AZ of
+	// its first instance, so a shared PG would force all experiments into
+	// the same AZ even when one is short on capacity.
+	AWSPlacementGroupPrefix = "talis-cluster"
 
 	// AWSCanonicalOwnerID is Canonical's AWS account ID. It owns the
 	// official Ubuntu AMIs we filter against.
@@ -117,7 +120,7 @@ func (c *AWSClient) Up(ctx context.Context, workers int) error {
 		return fmt.Errorf("no instances to create")
 	}
 
-	insts, err := CreateAWSInstances(ctx, insts, string(c.sshKey), c.cfg.SSHKeyName, workers)
+	insts, err := CreateAWSInstances(ctx, insts, string(c.sshKey), c.cfg.SSHKeyName, awsPlacementGroupName(c.cfg.ChainID), workers)
 	if err != nil {
 		return fmt.Errorf("failed to create instances: %w", err)
 	}
@@ -269,9 +272,9 @@ func newEC2Client(ctx context.Context, region string) (*ec2.Client, error) {
 }
 
 // CreateAWSInstances launches EC2 instances in parallel, each pinned to
-// its Instance.Zone + the cluster placement group (where supported),
+// its Instance.Zone + the given cluster placement group (where supported),
 // waits for public + private IPs, and returns the filled-in slice.
-func CreateAWSInstances(ctx context.Context, insts []Instance, sshKey, keyName string, workers int) ([]Instance, error) {
+func CreateAWSInstances(ctx context.Context, insts []Instance, sshKey, keyName, placementGroup string, workers int) ([]Instance, error) {
 	type result struct {
 		inst         Instance
 		err          error
@@ -309,7 +312,7 @@ func CreateAWSInstances(ctx context.Context, insts []Instance, sshKey, keyName s
 			start := time.Now()
 			log.Println("Creating instance", inst.Name, "in region", inst.Region, start.Format(time.RFC3339))
 
-			pubIP, privIP, err := createAWSInstance(ctx, inst, sshKey, keyName)
+			pubIP, privIP, err := createAWSInstance(ctx, inst, sshKey, keyName, placementGroup)
 			if err != nil {
 				results <- result{inst: inst, err: fmt.Errorf("create %s: %w", inst.Name, err)}
 				return
@@ -341,7 +344,7 @@ func CreateAWSInstances(ctx context.Context, insts []Instance, sshKey, keyName s
 // createAWSInstance runs the full per-instance provisioning: resolve
 // AMI, ensure key pair + security group + placement group, resolve
 // default subnet in the target AZ, RunInstances, wait for IPs.
-func createAWSInstance(ctx context.Context, inst Instance, sshKey, keyName string) (string, string, error) {
+func createAWSInstance(ctx context.Context, inst Instance, sshKey, keyName, placementGroup string) (string, string, error) {
 	client, err := newEC2Client(ctx, inst.Region)
 	if err != nil {
 		return "", "", err
@@ -359,9 +362,9 @@ func createAWSInstance(ctx context.Context, inst Instance, sshKey, keyName strin
 		return "", "", fmt.Errorf("ensure security group: %w", err)
 	}
 
-	useCPG := supportsClusterPlacement(inst.Slug)
+	useCPG := supportsClusterPlacement(inst.Slug) && placementGroup != ""
 	if useCPG {
-		if err := ensureAWSPlacementGroup(ctx, client); err != nil {
+		if err := ensureAWSPlacementGroup(ctx, client, placementGroup); err != nil {
 			return "", "", fmt.Errorf("ensure placement group: %w", err)
 		}
 	}
@@ -380,7 +383,7 @@ func createAWSInstance(ctx context.Context, inst Instance, sshKey, keyName strin
 
 	placement := &ec2types.Placement{AvailabilityZone: aws.String(zone)}
 	if useCPG {
-		placement.GroupName = aws.String(AWSPlacementGroupName)
+		placement.GroupName = aws.String(placementGroup)
 	}
 
 	runOut, err := client.RunInstances(ctx, &ec2.RunInstancesInput{
@@ -905,22 +908,55 @@ func ensureAWSSecurityGroup(ctx context.Context, client *ec2.Client) (string, er
 	return groupID, nil
 }
 
-// ensureAWSPlacementGroup creates a cluster placement group in the
-// region if one doesn't already exist. Idempotent and race-safe.
-func ensureAWSPlacementGroup(ctx context.Context, client *ec2.Client) error {
+// ensureAWSPlacementGroup creates a cluster placement group with the
+// given name in the region if one doesn't already exist. Idempotent and
+// race-safe.
+func ensureAWSPlacementGroup(ctx context.Context, client *ec2.Client, name string) error {
 	out, err := client.DescribePlacementGroups(ctx, &ec2.DescribePlacementGroupsInput{
-		GroupNames: []string{AWSPlacementGroupName},
+		GroupNames: []string{name},
 	})
 	if err == nil && len(out.PlacementGroups) > 0 {
 		return nil
 	}
 	if _, err := client.CreatePlacementGroup(ctx, &ec2.CreatePlacementGroupInput{
-		GroupName: aws.String(AWSPlacementGroupName),
+		GroupName: aws.String(name),
 		Strategy:  ec2types.PlacementStrategyCluster,
 	}); err != nil && !strings.Contains(err.Error(), "InvalidPlacementGroup.Duplicate") {
 		return fmt.Errorf("create placement group: %w", err)
 	}
 	return nil
+}
+
+// awsPlacementGroupName derives the per-experiment placement group name
+// from the chain ID. Two experiments running concurrently in the same
+// account get distinct PGs, so they can land in different AZs (a PG is
+// locked to the AZ of its first instance). Falls back to the bare prefix
+// if chain ID is empty (legacy/unconfigured).
+func awsPlacementGroupName(chainID string) string {
+	chainID = sanitizeAWSPlacementGroupChainID(chainID)
+	if chainID == "" {
+		return AWSPlacementGroupPrefix
+	}
+	return AWSPlacementGroupPrefix + "-" + chainID
+}
+
+// sanitizeAWSPlacementGroupChainID keeps only characters AWS allows in
+// placement group names ([a-zA-Z0-9_.-]). Other runes become '-'.
+func sanitizeAWSPlacementGroupChainID(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '_', r == '.', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
 }
 
 // defaultSubnetInAZ returns the SubnetId of the default VPC's default

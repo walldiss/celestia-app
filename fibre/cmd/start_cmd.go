@@ -12,6 +12,7 @@ import (
 const (
 	flagAppGRPCAddress      = "app-grpc-address"
 	flagServerListenAddress = "server-listen-address"
+	flagTLSAdvertiseAddress = "tls-advertise-address"
 	flagSignerGRPCAddress   = "signer-grpc-address"
 )
 
@@ -67,6 +68,7 @@ func newStartCmd(start func(context.Context, fibre.ServerConfig) error) *cobra.C
 	// then restores any user-set flags so precedence is: flag > config file > default.
 	cmd.Flags().StringVar(&cfg.AppGRPCAddress, flagAppGRPCAddress, cfg.AppGRPCAddress, "core/app node gRPC address")
 	cmd.Flags().StringVar(&cfg.ServerListenAddress, flagServerListenAddress, cfg.ServerListenAddress, "fibre server listen address")
+	cmd.Flags().StringVar(&cfg.TLSAdvertiseAddress, flagTLSAdvertiseAddress, cfg.TLSAdvertiseAddress, "public fibre host:port used for TLS verification")
 	cmd.Flags().StringVar(&cfg.SignerGRPCAddress, flagSignerGRPCAddress, cfg.SignerGRPCAddress, "validator PrivValidatorAPI gRPC address for signing")
 
 	return cmd

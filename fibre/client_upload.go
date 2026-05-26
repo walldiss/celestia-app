@@ -308,6 +308,9 @@ func (c *Client) uploadTo(
 	c.metrics.observeUploadToRPC(ctx, rpcStart, err == nil, valAddrStr)
 	if err != nil {
 		log.WarnContext(ctx, "failed to upload rows", "error", err)
+		if closeErr := c.clientCache.Invalidate(val); closeErr != nil {
+			log.WarnContext(ctx, "failed to invalidate cached grpc.FibreClient", "error", closeErr)
+		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to upload rows")
 		return false

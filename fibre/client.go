@@ -44,6 +44,7 @@ type Client struct {
 	// Close() waits for this WaitGroup to ensure all operations complete before releasing resources.
 	// Upload/Download operations don't wait for their spawned goroutines, allowing them to return early for low latency.
 	closeWg sync.WaitGroup
+	startMu sync.Mutex
 	// started indicates whether Start() has been called.
 	started atomic.Bool
 	// closed indicates whether Close() has been called.
@@ -69,7 +70,7 @@ func NewClient(kr keyring.Keyring, cfg ClientConfig) (*Client, error) {
 	}
 
 	if cfg.NewClientFn == nil {
-		cfg.NewClientFn = fibregrpc.DefaultNewClientFn(stateClient, cfg.MaxMessageSize)
+		cfg.NewClientFn = fibregrpc.DefaultNewClientFn(stateClient, stateClient.ChainID, cfg.MaxMessageSize)
 	}
 
 	metrics, err := newClientMetrics(cfg.Meter)
@@ -104,13 +105,15 @@ func (c *Client) Await() {
 // (e.g. auto-detecting the chain ID from the node).
 // Must be called before [Client.Upload] or [Client.Download].
 func (c *Client) Start(ctx context.Context) error {
-	if !c.started.CompareAndSwap(false, true) {
+	c.startMu.Lock()
+	defer c.startMu.Unlock()
+	if c.started.Load() {
 		return nil
 	}
 	if err := c.state.Start(ctx); err != nil {
-		c.started.Store(false)
 		return err
 	}
+	c.started.Store(true)
 	c.log.Info("client ready", "chain_id", c.state.ChainID())
 	return nil
 }

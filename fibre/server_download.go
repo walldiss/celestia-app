@@ -15,7 +15,9 @@ import (
 )
 
 // DownloadShard handles the [types.FibreServer.DownloadShard] RPC call.
-// It retrieves [types.BlobShard] for the given blob ID.
+// It retrieves [types.BlobShard] for the given blob ID. Reads are intentionally
+// public for any peer that can reach the Fibre endpoint; uploads remain gated by
+// payment-promise verification.
 func (s *Server) DownloadShard(ctx context.Context, req *types.DownloadShardRequest) (_ *types.DownloadShardResponse, err error) {
 	ctx, span := s.tracer.Start(ctx, "fibre.Server.DownloadShard")
 	defer span.End()

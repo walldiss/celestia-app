@@ -20,7 +20,6 @@ type ClientCache struct {
 type clientEntry struct {
 	sync.Mutex
 	clientCloser Client
-	err          error
 }
 
 // NewClientCache creates a new [ClientCache] with the given [NewClientFn].
@@ -49,12 +48,38 @@ func (cc *ClientCache) GetClient(ctx context.Context, val *core.Validator) (Clie
 	if entry.clientCloser != nil {
 		return entry.clientCloser, nil
 	}
-	if entry.err != nil {
-		return nil, entry.err
+
+	client, err := cc.newClient(ctx, val)
+	if err != nil {
+		return nil, err
+	}
+	entry.clientCloser = client
+	return entry.clientCloser, nil
+}
+
+// Invalidate closes and removes the cached client for val, forcing the next
+// GetClient call to resolve the validator host and create a fresh connection.
+func (cc *ClientCache) Invalidate(val *core.Validator) error {
+	addr := val.Address.String()
+
+	cc.mu.Lock()
+	entry, ok := cc.clients[addr]
+	if ok {
+		delete(cc.clients, addr)
+	}
+	cc.mu.Unlock()
+	if !ok {
+		return nil
 	}
 
-	entry.clientCloser, entry.err = cc.newClient(ctx, val)
-	return entry.clientCloser, entry.err
+	entry.Lock()
+	defer entry.Unlock()
+	if entry.clientCloser != nil {
+		err := entry.clientCloser.Close()
+		entry.clientCloser = nil
+		return err
+	}
+	return nil
 }
 
 // Close closes all cached [Client]s.

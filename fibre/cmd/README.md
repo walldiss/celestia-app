@@ -35,6 +35,7 @@ Override config values with flags (flags take precedence over config file):
 fibre start \
   --app-grpc-address 127.0.0.1:9090 \
   --server-listen-address 0.0.0.0:7980 \
+  --tls-advertise-address 203.0.113.10:7980 \
   --signer-grpc-address 127.0.0.1:26659
 ```
 
@@ -50,17 +51,33 @@ The config file is at `$FIBRE_HOME/server_config.toml` (default `~/.celestia-fib
 
 Config precedence: **flag > config file > default**.
 
+## Transport Security
+
+Fibre gRPC connections are always TLS-secured. The server creates an ephemeral TLS certificate and gets it endorsed with the validator key through `SignRawBytes`; clients verify that endorsement against the expected validator, chain ID, host, port, certificate public key, and validity window before any RPC succeeds.
+
+Validator fibre hosts may be DNS names or IP literals (`validator.example.com:7980`, `203.0.113.10:7980`, or `[2001:db8::1]:7980`). If the server listens on `0.0.0.0` or needs to advertise a public address that differs from its listen address, set:
+
+```sh
+fibre start --tls-advertise-address validator.example.com:7980
+```
+
+If `tls_advertise_address` is unset, the server uses its registered fibre provider host when available, then falls back to the actual bound listen address. A `0.0.0.0` or `[::]` fallback is rejected because it is not a usable client endpoint.
+
+`DownloadShard` is intentionally public-read for peers that can reach the Fibre endpoint. Uploads remain gated by payment promises.
+
 ## Signing
 
-Fibre signs payment promises by connecting to the consensus node's PrivValidatorAPI gRPC endpoint. The node handles its own key management (local key, tmkms, etc.) — fibre just delegates signing to it.
+Fibre signs payment promises and TLS certificate endorsements by connecting to the consensus node's PrivValidatorAPI gRPC endpoint. The node handles its own key management (local key, tmkms, etc.) — fibre just delegates signing to it.
 
 ### How it works
 
 1. Fibre connects to the node's PrivValidatorAPI gRPC endpoint (default `127.0.0.1:26659`)
 2. Fibre fetches the validator's public key via `GetPubKey` RPC to identify itself in the validator set
-3. Payment promises are signed via `SignRawBytes` RPC calls for the server's lifetime
+3. TLS certificate endorsements and payment promises are signed via `SignRawBytes` RPC calls for the server's lifetime
 
 ### Setup
+
+The default app and privval gRPC clients only accept loopback IP endpoints. Inject custom authenticated clients if either link must cross a network boundary.
 
 The privval gRPC endpoint is enabled by default when running `celestia-appd init` on `127.0.0.1:26659`.
 

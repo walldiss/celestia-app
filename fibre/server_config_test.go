@@ -44,6 +44,8 @@ func TestServerConfigSaveIncludesFieldComments(t *testing.T) {
 	content := string(data)
 	assert.Contains(t, content, "# ServerListenAddress is the TCP address where the server listens for requests.")
 	assert.Contains(t, content, "server_listen_address =")
+	assert.Contains(t, content, "# TLSAdvertiseAddress is the optional public TCP address clients use for Fibre TLS verification.")
+	assert.Contains(t, content, "tls_advertise_address =")
 	assert.Contains(t, content, "# AppGRPCAddress is the gRPC address of the core/app node.")
 	assert.Contains(t, content, "app_grpc_address =")
 }
@@ -54,6 +56,7 @@ func TestServerConfigLoadCustomFile(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(configPath), 0o755))
 
 	content := `server_listen_address = "127.0.0.1:8123"
+tls_advertise_address = "127.0.0.1:8124"
 app_grpc_address = "127.0.0.1:10090"
 signer_grpc_address = "127.0.0.1:26658"
 `
@@ -64,6 +67,7 @@ signer_grpc_address = "127.0.0.1:26658"
 	cfg.Path = home
 
 	assert.Equal(t, "127.0.0.1:8123", cfg.ServerListenAddress)
+	assert.Equal(t, "127.0.0.1:8124", cfg.TLSAdvertiseAddress)
 	assert.Equal(t, "127.0.0.1:10090", cfg.AppGRPCAddress)
 
 	// StoreFn, SignerFn, and StateClientFn are nil until Validate fills in defaults.

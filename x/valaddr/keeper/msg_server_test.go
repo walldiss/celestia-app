@@ -27,10 +27,10 @@ func TestMsgSetFibreProviderInfo(t *testing.T) {
 	require.NoError(t, err)
 	consAddr := sdk.ConsAddress(consPubKey.Address())
 
-	t.Run("valid DNS hostname with port", func(t *testing.T) {
+	t.Run("valid IP literal with port", func(t *testing.T) {
 		msg := &types.MsgSetFibreProviderInfo{
 			Signer: valAddrStr,
-			Host:   "validator1.fibre.example.com:7980",
+			Host:   "10.0.0.1:7980",
 		}
 
 		err = msg.ValidateBasic()
@@ -43,6 +43,18 @@ func TestMsgSetFibreProviderInfo(t *testing.T) {
 		retrievedInfo, found := testApp.ValAddrKeeper.GetFibreProviderInfo(ctx, consAddr)
 		require.True(t, found)
 		require.Equal(t, msg.Host, retrievedInfo.Host)
+	})
+
+	t.Run("valid DNS hostname with port", func(t *testing.T) {
+		valAddr := sdk.ValAddress("validator1")
+
+		msg := &types.MsgSetFibreProviderInfo{
+			Signer: valAddr.String(),
+			Host:   "validator1.fibre.example.com:7980",
+		}
+
+		err := msg.ValidateBasic()
+		require.NoError(t, err)
 	})
 
 	t.Run("valid IP with port", func(t *testing.T) {

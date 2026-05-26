@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/celestiaorg/celestia-app/v9/fibre/validator"
@@ -9,7 +10,11 @@ import (
 	core "github.com/cometbft/cometbft/types"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	grpclib "google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+)
+
+var (
+	errMissingChainIDProvider = errors.New("chain ID provider is required")
+	errEmptyChainID           = errors.New("chain ID is empty; state client must be started before dialing")
 )
 
 // Client combines [FibreClient] with [io.Closer] to manage the lifecycle
@@ -34,19 +39,35 @@ func (f *fibreClientCloser) Close() error {
 }
 
 // DefaultNewClientFn returns the default [NewClientFn] that uses the provided
-// [validator.HostRegistry] to resolve validator hosts and establishes insecure gRPC connections
-// with OpenTelemetry instrumentation for distributed tracing.
+// [validator.HostRegistry] to resolve validator hosts and establishes TLS gRPC connections
+// with OpenTelemetry instrumentation for distributed tracing. The peer certificate must
+// be endorsed by the expected validator and match the validator host and port.
 // The maxMsgSize parameter sets the maximum gRPC message size for send and receive operations.
-func DefaultNewClientFn(hostReg validator.HostRegistry, maxMsgSize int) NewClientFn {
+func DefaultNewClientFn(hostReg validator.HostRegistry, chainID func() string, maxMsgSize int) NewClientFn {
 	return func(ctx context.Context, val *core.Validator) (Client, error) {
 		host, err := hostReg.GetHost(ctx, val)
 		if err != nil {
 			return nil, err
 		}
 
-		// TODO(@Wondertan): setup secure connection
+		endpoint, err := TargetAddressFromString(host.String())
+		if err != nil {
+			return nil, err
+		}
+		if chainID == nil {
+			return nil, errMissingChainIDProvider
+		}
+		cid := chainID()
+		if cid == "" {
+			return nil, errEmptyChainID
+		}
+		creds, err := ClientTransportCredentials(val, endpoint, cid)
+		if err != nil {
+			return nil, err
+		}
+
 		conn, err := grpclib.NewClient(host.String(),
-			grpclib.WithTransportCredentials(insecure.NewCredentials()),
+			grpclib.WithTransportCredentials(creds),
 			grpclib.WithStatsHandler(otelgrpc.NewClientHandler()),
 			grpclib.WithDefaultCallOptions(
 				grpclib.MaxCallRecvMsgSize(maxMsgSize),

@@ -52,6 +52,7 @@ func startServer(ctx context.Context, cfg fibre.ServerConfig) error {
 		"listen", server.ListenAddress(),
 		"app_grpc", cfg.AppGRPCAddress,
 		"privval_grpc", cfg.SignerGRPCAddress,
+		"tls_advertise_address", cfg.TLSAdvertiseAddress,
 		"chain_id", server.ChainID(),
 		"store", cfg.Path,
 	)

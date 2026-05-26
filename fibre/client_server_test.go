@@ -295,7 +295,7 @@ func makeTestEnv(
 		if modifyClientConfig != nil {
 			modifyClientConfig(&clientCfg)
 		}
-		clientCfg.NewClientFn = grpcfibre.DefaultNewClientFn(&testHostRegistry{addresses: addresses}, clientCfg.MaxMessageSize)
+		clientCfg.NewClientFn = grpcfibre.DefaultNewClientFn(&testHostRegistry{addresses: addresses}, func() string { return "celestia" }, clientCfg.MaxMessageSize)
 		clientCfg.StateClientFn = func() (state.Client, error) {
 			return &mockStateClient{SetGetter: valSetGetter, chainID: "celestia"}, nil
 		}

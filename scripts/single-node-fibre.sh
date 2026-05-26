@@ -10,8 +10,8 @@ CHAIN_ID="test"
 KEY_NAME="validator"
 KEYRING_BACKEND="test"
 FEES="5000utia"
-APP_GRPC_ADDR="localhost:9090"
-FIBRE_HOST="localhost:7980"
+APP_GRPC_ADDR="127.0.0.1:9090"
+FIBRE_HOST="127.0.0.1:7980"
 
 VERSION=$(celestia-appd version 2>&1)
 APP_HOME="${HOME}/.celestia-app"
@@ -159,6 +159,8 @@ startFibre() {
   echo "Starting fibre in background..."
   fibre start \
     --home "${FIBRE_HOME}" \
+    --server-listen-address "${FIBRE_HOST}" \
+    --tls-advertise-address "${FIBRE_HOST}" \
     --app-grpc-address "${APP_GRPC_ADDR}" &
 
   FIBRE_PID=$!

@@ -3,6 +3,7 @@ package types
 import (
 	"net"
 	"strconv"
+	"strings"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -14,7 +15,7 @@ const (
 
 	// AttributeKeyValidatorAddress is the attribute key for consensus address
 	AttributeKeyValidatorAddress = "validator_consensus_address"
-	// AttributeKeyHost is the attribute key for IP address
+	// AttributeKeyHost is the attribute key for the fibre host address.
 	AttributeKeyHost = "host"
 
 	// MaxHostLen is the maximum length for the host field (IP address, DNS name, etc.)
@@ -31,8 +32,8 @@ var _ sdk.Msg = &MsgSetFibreProviderInfo{}
 
 // ValidateBasic performs basic validation of the MsgSetFibreProviderInfo message.
 //
-// Host must be in `host:port` form: a non-empty host (IP literal or DNS name)
-// followed by a numeric port in the range [1, 65535]. Schemes (http://,
+// Host must be in `host:port` form: a non-empty DNS name or non-unspecified IP
+// literal followed by a numeric port in the range [1, 65535]. Schemes (http://,
 // dns:///, etc.) and URL paths are rejected — every fibre client uses the
 // same gRPC transport, so per-provider scheme variation has no use case and
 // historically led to operators registering hosts that could not be dialled.
@@ -66,6 +67,14 @@ func ValidateHost(host string) error {
 	if hostPart == "" {
 		return errorsmod.Wrapf(ErrInvalidHostAddress, "host part cannot be empty in %q", host)
 	}
+	hostPart = strings.Trim(hostPart, "[]")
+	if ip := net.ParseIP(hostPart); ip != nil {
+		if ip.IsUnspecified() {
+			return errorsmod.Wrapf(ErrInvalidHostAddress, "host part must not be unspecified in %q", host)
+		}
+	} else if !validDNSName(hostPart) {
+		return errorsmod.Wrapf(ErrInvalidHostAddress, "host part must be a DNS name or IP literal in %q", host)
+	}
 	port, err := strconv.Atoi(portPart)
 	if err != nil {
 		return errorsmod.Wrapf(ErrInvalidHostAddress,
@@ -76,4 +85,23 @@ func ValidateHost(host string) error {
 			"port %d in %q out of range [%d, %d]", port, host, minPort, maxPort)
 	}
 	return nil
+}
+
+func validDNSName(host string) bool {
+	if host == "" || len(host) > 253 || strings.HasSuffix(host, ".") {
+		return false
+	}
+	labels := strings.Split(host, ".")
+	for _, label := range labels {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
 }

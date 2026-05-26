@@ -4,8 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	fibregrpc "github.com/celestiaorg/celestia-app/v9/fibre/internal/grpc"
 	"github.com/celestiaorg/celestia-app/v9/fibre/internal/sign"
@@ -31,6 +34,9 @@ type ServerConfig struct {
 	AppGRPCAddress string `toml:"app_grpc_address" comment:"AppGRPCAddress is the gRPC address of the core/app node."`
 	// ServerListenAddress is the TCP address where the server listens for requests.
 	ServerListenAddress string `toml:"server_listen_address" comment:"ServerListenAddress is the TCP address where the server listens for requests."`
+	// TLSAdvertiseAddress is the optional public TCP address clients use for Fibre TLS verification.
+	// If empty, the server uses the validator's registered fibre provider host, then falls back to the actual bound listen address.
+	TLSAdvertiseAddress string `toml:"tls_advertise_address" comment:"TLSAdvertiseAddress is the optional public TCP address clients use for Fibre TLS verification."`
 	// SignerGRPCAddress is the gRPC address of the validator's PrivValidatorAPI endpoint.
 	SignerGRPCAddress string `toml:"signer_grpc_address" comment:"SignerGRPCAddress is the gRPC address of the validator's PrivValidatorAPI endpoint."`
 
@@ -113,6 +119,9 @@ func (cfg *ServerConfig) Validate() error {
 		if cfg.AppGRPCAddress == "" {
 			return fmt.Errorf("app gRPC address is required for default state client")
 		}
+		if err := validateLoopbackAddress("app_grpc_address", cfg.AppGRPCAddress); err != nil {
+			return err
+		}
 		cfg.StateClientFn = func() (state.Client, error) {
 			return fibregrpc.NewAppClient(cfg.AppGRPCAddress, cfg.Log)
 		}
@@ -122,11 +131,55 @@ func (cfg *ServerConfig) Validate() error {
 		if cfg.SignerGRPCAddress == "" {
 			return fmt.Errorf("signer_grpc_address is required")
 		}
+		if err := validateLoopbackAddress("signer_grpc_address", cfg.SignerGRPCAddress); err != nil {
+			return err
+		}
 		cfg.SignerFn = func(chainID string) (core.PrivValidator, error) {
 			return sign.NewGRPCClient(cfg.SignerGRPCAddress, chainID, cfg.Log)
 		}
 	}
 	return nil
+}
+
+func validateLoopbackAddress(name, target string) error {
+	endpoint, err := configEndpoint(target)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return fmt.Errorf("%s must be in host:port form: %w", name, err)
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("%s must be a loopback IP address unless a custom authenticated client is injected", name)
+	}
+	return nil
+}
+
+func configEndpoint(target string) (string, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", fmt.Errorf("address is empty")
+	}
+	if !strings.Contains(target, "://") {
+		return target, nil
+	}
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return "", err
+	}
+	endpoint := parsed.Host
+	if endpoint == "" {
+		endpoint = strings.TrimLeft(parsed.Path, "/")
+	}
+	if endpoint == "" {
+		endpoint = parsed.Opaque
+	}
+	if endpoint == "" {
+		return "", fmt.Errorf("address does not contain an endpoint")
+	}
+	return endpoint, nil
 }
 
 // Load reads the TOML config file at path into the receiver, overriding only

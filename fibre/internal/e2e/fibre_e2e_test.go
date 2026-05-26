@@ -101,6 +101,7 @@ func (s *FibreE2ETestSuite) SetupSuite() {
 	fibreAddr := s.fibreServer.ListenAddress()
 	clientCfg.NewClientFn = grpcfibre.DefaultNewClientFn(
 		&fixedHostRegistry{addr: fibreAddr},
+		func() string { return s.cctx.ChainID },
 		clientCfg.MaxMessageSize,
 	)
 
@@ -281,7 +282,9 @@ func (s *FibreE2ETestSuite) Test03Put() {
 }
 
 // fixedHostRegistry returns the same address for every validator.
-type fixedHostRegistry struct{ addr string }
+type fixedHostRegistry struct {
+	addr string
+}
 
 func (r *fixedHostRegistry) GetHost(_ context.Context, _ *core.Validator) (validator.Host, error) {
 	if r.addr == "" {

@@ -12,6 +12,7 @@ import (
 	core "github.com/cometbft/cometbft/types"
 	"go.opentelemetry.io/otel/trace"
 	grpclib "google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 // Server implements the Fibre gRPC service for validators.
@@ -57,21 +58,14 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		metrics: metrics,
 	}
 
-	server.grpc, err = fibregrpc.NewServer(
-		cfg.ServerListenAddress,
-		server,
-		grpclib.MaxRecvMsgSize(cfg.MaxMessageSize),
-		grpclib.MaxSendMsgSize(cfg.MaxMessageSize),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("creating gRPC server: %w", err)
-	}
-
 	return server, nil
 }
 
 // ListenAddress returns the actual address the server is listening on.
 func (s *Server) ListenAddress() string {
+	if s.grpc == nil {
+		return s.Config.ServerListenAddress
+	}
 	return s.grpc.ListenAddress()
 }
 
@@ -93,6 +87,11 @@ func (s *Server) Start(ctx context.Context) (err error) {
 	if err := s.state.Start(ctx); err != nil {
 		return err
 	}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, s.Stop(context.Background()))
+		}
+	}()
 
 	s.signer, err = s.Config.SignerFn(s.state.ChainID())
 	if err != nil {
@@ -105,6 +104,26 @@ func (s *Server) Start(ctx context.Context) (err error) {
 		return fmt.Errorf("opening store: %w", err)
 	}
 
+	s.grpc, err = fibregrpc.Listen(s.Config.ServerListenAddress)
+	if err != nil {
+		return fmt.Errorf("creating gRPC listener: %w", err)
+	}
+
+	creds, err := s.serverTransportCredentials(ctx, s.grpc.ListenAddress())
+	if err != nil {
+		return fmt.Errorf("creating TLS credentials: %w", err)
+	}
+
+	err = s.grpc.Register(
+		s,
+		grpclib.Creds(creds),
+		grpclib.MaxRecvMsgSize(s.Config.MaxMessageSize),
+		grpclib.MaxSendMsgSize(s.Config.MaxMessageSize),
+	)
+	if err != nil {
+		return fmt.Errorf("registering gRPC server: %w", err)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 
@@ -114,7 +133,12 @@ func (s *Server) Start(ctx context.Context) (err error) {
 		s.startPruneLoop(ctx)
 	}()
 
-	s.grpc.Serve()
+	serveErr := s.grpc.Serve()
+	go func() {
+		if err, ok := <-serveErr; ok && err != nil {
+			s.log.Error("gRPC serve loop exited", "error", err)
+		}
+	}()
 	s.log.Info("serving gRPC", "addr", s.grpc.ListenAddress())
 	return nil
 }
@@ -127,7 +151,9 @@ func (s *Server) Stop(ctx context.Context) (err error) {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	s.grpc.Stop(ctx)
+	if s.grpc != nil {
+		s.grpc.Stop(ctx)
+	}
 	if s.pruneDone != nil {
 		<-s.pruneDone
 	}
@@ -151,4 +177,59 @@ func (s *Server) Stop(ctx context.Context) (err error) {
 		}
 	}
 	return err
+}
+
+func (s *Server) serverTransportCredentials(ctx context.Context, fallbackAddress string) (credentials.TransportCredentials, error) {
+	pubKey, err := s.signer.GetPubKey()
+	if err != nil {
+		return nil, fmt.Errorf("getting validator public key: %w", err)
+	}
+
+	val := &core.Validator{
+		Address: pubKey.Address(),
+		PubKey:  pubKey,
+	}
+	endpoint, err := s.tlsAdvertiseEndpoint(ctx, val, fallbackAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	return fibregrpc.ServerTransportCredentials(s.state.ChainID(), val.Address.String(), endpoint, s.signer)
+}
+
+func (s *Server) tlsAdvertiseEndpoint(ctx context.Context, val *core.Validator, fallbackAddress string) (fibregrpc.TargetAddress, error) {
+	host, err := s.state.GetHost(ctx, val)
+	if err == nil && host.String() != "" {
+		endpoint, parseErr := fibregrpc.TargetAddressFromString(host.String())
+		if parseErr != nil {
+			return fibregrpc.TargetAddress{}, fmt.Errorf("registered fibre host %q cannot be used for TLS: %w", host.String(), parseErr)
+		}
+		if s.Config.TLSAdvertiseAddress != "" {
+			configured, cfgErr := fibregrpc.TargetAddressFromString(s.Config.TLSAdvertiseAddress)
+			if cfgErr != nil {
+				return fibregrpc.TargetAddress{}, fmt.Errorf("tls_advertise_address %q cannot be used for TLS: %w", s.Config.TLSAdvertiseAddress, cfgErr)
+			}
+			if configured.Host != endpoint.Host || configured.Port != endpoint.Port {
+				return fibregrpc.TargetAddress{}, fmt.Errorf("tls_advertise_address %q does not match registered fibre host %q", s.Config.TLSAdvertiseAddress, host.String())
+			}
+		}
+		return endpoint, nil
+	}
+	if err != nil {
+		s.log.DebugContext(ctx, "could not use registered fibre host for TLS", "error", err)
+	}
+
+	if s.Config.TLSAdvertiseAddress != "" {
+		endpoint, err := fibregrpc.TargetAddressFromString(s.Config.TLSAdvertiseAddress)
+		if err != nil {
+			return fibregrpc.TargetAddress{}, fmt.Errorf("tls_advertise_address %q cannot be used for TLS: %w", s.Config.TLSAdvertiseAddress, err)
+		}
+		return endpoint, nil
+	}
+
+	endpoint, err := fibregrpc.TargetAddressFromString(fallbackAddress)
+	if err != nil {
+		return fibregrpc.TargetAddress{}, fmt.Errorf("could not determine Fibre TLS endpoint; set tls_advertise_address or register a usable fibre host: %w", err)
+	}
+	return endpoint, nil
 }

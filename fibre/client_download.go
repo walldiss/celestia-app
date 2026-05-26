@@ -189,6 +189,9 @@ func (c *Client) downloadFrom(
 			return nil, err
 		}
 		log.WarnContext(ctx, "failed to download shard", "error", err)
+		if closeErr := c.clientCache.Invalidate(val); closeErr != nil {
+			log.WarnContext(ctx, "failed to invalidate cached grpc.FibreClient", "error", closeErr)
+		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to download shard")
 		return nil, err

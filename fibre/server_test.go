@@ -78,6 +78,13 @@ func (m *mockStateClient) Start(context.Context) error { return nil }
 func (m *mockStateClient) Stop(context.Context) error  { return nil }
 func (m *mockStateClient) ChainID() string             { return m.chainID }
 
+func (m *mockStateClient) GetHost(ctx context.Context, val *core.Validator) (validator.Host, error) {
+	if m.HostRegistry == nil {
+		return "", fmt.Errorf("host registry not configured")
+	}
+	return m.HostRegistry.GetHost(ctx, val)
+}
+
 func (m *mockStateClient) VerifyPromise(_ context.Context, promise *state.PaymentPromise) (state.VerifiedPromise, error) {
 	expirationTime := promise.CreationTimestamp.Add(1 * time.Hour)
 	if time.Now().After(expirationTime) || time.Now().Equal(expirationTime) {

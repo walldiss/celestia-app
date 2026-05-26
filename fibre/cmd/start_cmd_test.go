@@ -19,51 +19,61 @@ func TestStartCmdConfigPrecedence(t *testing.T) {
 	tests := []struct {
 		name                    string
 		fileServerListenAddress string
+		fileTLSAdvertiseAddress string
 		fileAppGRPCAddress      string
 		fileSignerGRPCAddress   string
 		args                    []string
 		wantServerListenAddress string
+		wantTLSAdvertiseAddress string
 		wantAppGRPCAddress      string
 		wantSignerGRPCAddress   string
 	}{
 		{
 			name:                    "defaults when no file and no flags",
 			wantServerListenAddress: defaults.ServerListenAddress,
+			wantTLSAdvertiseAddress: defaults.TLSAdvertiseAddress,
 			wantAppGRPCAddress:      defaults.AppGRPCAddress,
 			wantSignerGRPCAddress:   defaults.SignerGRPCAddress,
 		},
 		{
 			name:                    "file overrides defaults",
 			fileServerListenAddress: "127.0.0.1:8111",
+			fileTLSAdvertiseAddress: "127.0.0.1:8112",
 			fileAppGRPCAddress:      "127.0.0.1:9111",
 			fileSignerGRPCAddress:   "127.0.0.1:26660",
 			wantServerListenAddress: "127.0.0.1:8111",
+			wantTLSAdvertiseAddress: "127.0.0.1:8112",
 			wantAppGRPCAddress:      "127.0.0.1:9111",
 			wantSignerGRPCAddress:   "127.0.0.1:26660",
 		},
 		{
 			name:                    "flags override file",
 			fileServerListenAddress: "127.0.0.1:8111",
+			fileTLSAdvertiseAddress: "127.0.0.1:8112",
 			fileAppGRPCAddress:      "127.0.0.1:9111",
 			fileSignerGRPCAddress:   "127.0.0.1:26660",
 			args: []string{
 				"--" + flagServerListenAddress, "127.0.0.1:8222",
+				"--" + flagTLSAdvertiseAddress, "127.0.0.1:8223",
 				"--" + flagAppGRPCAddress, "127.0.0.1:9222",
 				"--" + flagSignerGRPCAddress, "127.0.0.1:26661",
 			},
 			wantServerListenAddress: "127.0.0.1:8222",
+			wantTLSAdvertiseAddress: "127.0.0.1:8223",
 			wantAppGRPCAddress:      "127.0.0.1:9222",
 			wantSignerGRPCAddress:   "127.0.0.1:26661",
 		},
 		{
 			name:                    "partial flag override keeps file value for unset flag",
 			fileServerListenAddress: "127.0.0.1:8111",
+			fileTLSAdvertiseAddress: "127.0.0.1:8112",
 			fileAppGRPCAddress:      "127.0.0.1:9111",
 			fileSignerGRPCAddress:   "127.0.0.1:26660",
 			args: []string{
 				"--" + flagServerListenAddress, "127.0.0.1:8333",
 			},
 			wantServerListenAddress: "127.0.0.1:8333",
+			wantTLSAdvertiseAddress: "127.0.0.1:8112",
 			wantAppGRPCAddress:      "127.0.0.1:9111",
 			wantSignerGRPCAddress:   "127.0.0.1:26660",
 		},
@@ -72,8 +82,8 @@ func TestStartCmdConfigPrecedence(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
-			if tc.fileServerListenAddress != "" || tc.fileAppGRPCAddress != "" || tc.fileSignerGRPCAddress != "" {
-				writeConfig(t, home, tc.fileServerListenAddress, tc.fileAppGRPCAddress, tc.fileSignerGRPCAddress)
+			if tc.fileServerListenAddress != "" || tc.fileTLSAdvertiseAddress != "" || tc.fileAppGRPCAddress != "" || tc.fileSignerGRPCAddress != "" {
+				writeConfig(t, home, tc.fileServerListenAddress, tc.fileTLSAdvertiseAddress, tc.fileAppGRPCAddress, tc.fileSignerGRPCAddress)
 			}
 
 			cmd, got := newTestStartCmd(t, home)
@@ -81,6 +91,7 @@ func TestStartCmdConfigPrecedence(t *testing.T) {
 			require.NoError(t, cmd.ExecuteContext(context.Background()))
 
 			assert.Equal(t, tc.wantServerListenAddress, got.ServerListenAddress)
+			assert.Equal(t, tc.wantTLSAdvertiseAddress, got.TLSAdvertiseAddress)
 			assert.Equal(t, tc.wantAppGRPCAddress, got.AppGRPCAddress)
 			assert.Equal(t, tc.wantSignerGRPCAddress, got.SignerGRPCAddress)
 			assert.Equal(t, home, got.Path)
@@ -197,11 +208,12 @@ func TestStartCmdGRPCSignerFlags(t *testing.T) {
 	}
 }
 
-func writeConfig(t *testing.T, home, serverListenAddress, appGRPCAddress, signerGRPCAddress string) {
+func writeConfig(t *testing.T, home, serverListenAddress, tlsAdvertiseAddress, appGRPCAddress, signerGRPCAddress string) {
 	t.Helper()
 
 	cfg := fibre.DefaultServerConfig()
 	cfg.ServerListenAddress = serverListenAddress
+	cfg.TLSAdvertiseAddress = tlsAdvertiseAddress
 	cfg.AppGRPCAddress = appGRPCAddress
 	cfg.SignerGRPCAddress = signerGRPCAddress
 	require.NoError(t, cfg.Save(fibre.DefaultConfigPath(home)))

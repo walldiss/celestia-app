@@ -138,7 +138,7 @@ func (s *IntegrationTestSuite) TestGetHostWithRegistration() {
 	require.Equal(t, testHost, host.String(), "host should match what we registered")
 
 	// Submit another transaction to update the host
-	testHost2 := "validator.example.com:8081"
+	testHost2 := "validator-alt.example.com:8081"
 	msg = &types.MsgSetFibreProviderInfo{
 		Signer: valOperatorAddr,
 		Host:   testHost2,

@@ -60,6 +60,8 @@ talis start-fibre
 
 The fibre server delegates signing to the colocated validator node's PrivValidatorAPI gRPC endpoint (default `127.0.0.1:26659`). Override with `--signer-grpc-address` if needed. Metrics and traces are auto-enabled via OTLP when observability nodes are configured.
 
+Fibre gRPC is always TLS-secured. Each server presents an ephemeral certificate endorsed by its validator key, and clients verify the expected validator, chain ID, host, port, and certificate validity before using the connection. The hosts registered by `talis setup-fibre` are validator public IP literals, but DNS names are also supported by the transport.
+
 Each validator runs the fibre server inside a tmux session called `fibre`. To stop:
 
 ```sh
